@@ -6,10 +6,17 @@ import android.os.Bundle;
 import android.util.Log;
 import android.view.View;
 
+import org.reactivestreams.Subscriber;
+import org.reactivestreams.Subscription;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
+import io.reactivex.BackpressureStrategy;
+import io.reactivex.Flowable;
+import io.reactivex.FlowableEmitter;
+import io.reactivex.FlowableOnSubscribe;
 import io.reactivex.Observable;
 import io.reactivex.ObservableEmitter;
 import io.reactivex.ObservableOnSubscribe;
@@ -40,7 +47,7 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         findViewById(R.id.button3).setOnClickListener(this);
         findViewById(R.id.button4).setOnClickListener(this);
         findViewById(R.id.button5).setOnClickListener(this);
-        findViewById(R.id.button6).setOnClickListener(this);
+        findViewById(R.id.button7).setOnClickListener(this);
     }
 
     @Override
@@ -63,6 +70,9 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
                 break;
             case R.id.button6:
                 testSix();
+                break;
+            case R.id.button7:
+                testSeven();
                 break;
         }
     }
@@ -122,38 +132,42 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
                 Log.d(TAG, "emit complete");//发送“完成”，上游继续发送，只是下游不再接受
                 emitter.onComplete();
                 Log.d(TAG, "emit 4");
+//                for (int i=0;i<300;i++){//只要有，我就会一直发送，量大了，OOM。后面引入被压
+//                    Log.d(TAG, "emit "+i);
+//                    emitter.onNext(i);
+//                }
                 emitter.onNext(4);
             }
         }).subscribe(
-//            new Observer<Integer>() {
-//            private Disposable mDisposable;
-//            private  int i;
-//            @Override
-//            public void onSubscribe(Disposable d) {
-//                Log.i(TAG,"onSubscribe====");
-//                mDisposable = d;
-//            }
-//
-//            @Override
-//            public void onNext(Integer integer) {
-//                Log.i(TAG,"===="+integer);
-//                i++;
-//                if (i==2){//切断水管之后，下游不再接收，但是不影响上游的发送
-//                    mDisposable.dispose();
-//                    Log.d(TAG, "isDisposed : " + mDisposable.isDisposed());
-//                }
-//            }
-//
-//            @Override
-//            public void onError(Throwable e) {
-//                Log.i(TAG, "error");
-//            }
-//
-//            @Override
-//            public void onComplete() {
-//                Log.i(TAG, "complete");
-//            }
-//        }
+            new Observer<Integer>() {
+            private Disposable mDisposable;
+            private  int i;
+            @Override
+            public void onSubscribe(Disposable d) {
+                Log.i(TAG,"onSubscribe====");
+                mDisposable = d;
+            }
+
+            @Override
+            public void onNext(Integer integer) {
+                Log.i(TAG,"===="+integer);
+                i++;
+                if (i==2){//切断水管之后，下游不再接收，但是不影响上游的发送
+                    mDisposable.dispose();
+                    Log.d(TAG, "isDisposed : " + mDisposable.isDisposed());
+                }
+            }
+
+            @Override
+            public void onError(Throwable e) {
+                Log.i(TAG, "error");
+            }
+
+            @Override
+            public void onComplete() {
+                Log.i(TAG, "complete");
+            }
+        }
 
                 //方案二，subscribe的重载方法,多个
                 /**
@@ -164,17 +178,17 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
                  public final Disposable subscribe(Consumer<? super T> onNext, Consumer<? super Throwable> onError, Action onComplete, Consumer<? super Disposable> onSubscribe) {}
                  public final void subscribe(Observer<? super T> observer) {}
                  */
-                new Consumer<Integer>() {//这个是next接受的事件
-                    @Override
-                    public void accept(Integer integer) throws Exception {
-                        Log.i(TAG,"===="+integer);
-                    }
-                }, new Consumer<Throwable>() {//这个是异常出错的事件
-                    @Override
-                    public void accept(Throwable throwable) throws Exception {
-                        Log.i(TAG, "error");
-                    }
-                }
+//                new Consumer<Integer>() {//这个是next接受的事件
+//                    @Override
+//                    public void accept(Integer integer) throws Exception {
+//                        Log.i(TAG,"===="+integer);
+//                    }
+//                }, new Consumer<Throwable>() {//这个是异常出错的事件
+//                    @Override
+//                    public void accept(Throwable throwable) throws Exception {
+//                        Log.i(TAG, "error");
+//                    }
+//                }
         );
 
     }
@@ -343,10 +357,57 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
             }
         });
 
-
-
-
     }
 
+
+    //同步得时候，上下游在一个线程，发送一个处理一个，这种情况少。一半是异步，上游不断得发送，不管下游处理，就引入得被压的概念
+    //上游发送的事件存储在一个水桶容器中，下游取
+    public void testSeven(){//被压简单测试代码
+        //自己的理解处理被压。1.减少放进水缸的事件的数量, 是以数量取胜, 但是这个方法有个缺点, 就是丢失了大部分的事件.
+        //2.降低发送事件的速度，这样也可以
+        Flowable<Integer>flowable = Flowable.create(new FlowableOnSubscribe<Integer>() {
+            @Override
+            public void subscribe(FlowableEmitter<Integer> emitter) throws Exception {
+                Log.d(TAG, "emit 1");
+                emitter.onNext(1);
+                Log.d(TAG, "emit 2");
+                emitter.onNext(2);
+                Log.d(TAG, "emit 3");
+                emitter.onNext(3);
+                Log.d(TAG, "emit complete");
+                emitter.onComplete();
+
+
+            }
+        }, BackpressureStrategy.ERROR);//增加了个参数
+
+        Subscriber<Integer>subscriber = new Subscriber<Integer>() {
+            @Override
+            public void onSubscribe(Subscription s) {
+               // request是一种能力, 当成下游处理事件的能力（响应拉取），下游告诉上游我能处理多少，你给我来多少
+                s.request(Long.MAX_VALUE);//调用s.cancel()也可以切断水管，同步不加这句就奔溃。下游没有处理能力，你还给我发，咱俩在一个线程，我就奔溃了
+                                            //异步的话，上游发送完，我下游没有处理能力，上游的事件都到水缸里去了，我没能力拉去啊
+            }
+
+            @Override
+            public void onNext(Integer integer) {
+                Log.d(TAG, "onNext: " + integer);
+            }
+
+            @Override
+            public void onError(Throwable t) {
+                Log.w(TAG, "onError: ", t);
+            }
+
+            @Override
+            public void onComplete() {
+                Log.d(TAG, "onComplete");
+            }
+
+        };
+
+        flowable.subscribe(subscriber);
+
+    }
 
 }
