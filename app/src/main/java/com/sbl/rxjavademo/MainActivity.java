@@ -362,7 +362,8 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
 
     //同步得时候，上下游在一个线程，发送一个处理一个，这种情况少。一半是异步，上游不断得发送，不管下游处理，就引入得被压的概念
     //上游发送的事件存储在一个水桶容器中，下游取
-    public void testSeven(){//被压简单测试代码
+    public void testSeven(){
+        //被压简单测试代码
         //自己的理解处理被压。1.减少放进水缸的事件的数量, 是以数量取胜, 但是这个方法有个缺点, 就是丢失了大部分的事件.
         //2.降低发送事件的速度，这样也可以
         Flowable<Integer>flowable = Flowable.create(new FlowableOnSubscribe<Integer>() {
@@ -407,6 +408,13 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         };
 
         flowable.subscribe(subscriber);
+
+    }
+
+
+
+    //被压测试，水桶同步异步的空间大小
+    public void testEight(){
 
     }
 
